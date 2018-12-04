@@ -1,0 +1,349 @@
+Importing Moduels
+import pandas as pd
+import numpy as np
+import os
+import matplotlib.pyplot as plt
+import scipy
+from scipy.stats import pearsonr
+from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier,AdaBoostClassifier,GradientBoostingClassifier 
+from sklearn.metrics import confusion_matrix,accuracy_score
+from scipy import stats
+#The Roll's mesure
+#Reading Data of Dow index 30
+#Read several csv files 
+df_list = []
+path=".../DOW30"
+for file in os.listdir(path):
+    df = pd.read_csv(path+'/'+ file, engine='python')
+    #vars()[]: replace a string with a variable that have the same name
+    vars()[file.replace(".csv","")]=df
+
+#Calculate the log return
+def Return(Inc,n): 
+        Inc['Return_'+str(n)]=pd.Series(10000*np.log(Inc['Close'] / Inc['Close'].shift(n)),index=Inc.index)      
+        Inc['Return_'+str(n)]=Inc['Return_'+str(n)].dropna()
+
+#We use SMA to smooth out volatility and show the price trend of security
+#Identify the trend of the price security 
+def SMA(Inc,n):
+    Inc['SMA_'+str(n)]=Inc['Close'].rolling(window=n).mean()
+    Inc['SMA_'+str(n)]=Inc['SMA_'+str(n)].dropna()
+def SMAC(Inc,n):
+    Inc['SMAC_'+str(n)]=pd.Series(100*(Inc['Close']-Inc['SMA_'+str(n)])/Inc['SMA_'+str(n)],index=Inc.index)
+    Inc['SMAC_'+str(n)]=Inc['SMAC_'+str(n)].dropna()
+#EMA role : Average out the noise
+#Reduce the lag inducted by the SMA 
+def EMA(Inc,n) :
+    if n == 1 :
+        Inc['EMA_'+str(n)] = pd.Series(Inc['Close'].shift(n), index=Inc.index)
+    else : 
+        Inc['EMA_'+str(n)] = Inc['Close'].ewm(span= n).mean()
+    Inc['EMA_'+str(n)]=Inc['EMA_'+str(n)].dropna()
+    
+def VWEMA(Inc,n) :
+    if n == 1 :
+        Inc['VWEMA_'+str(n)] = pd.Series((Inc['Close'].shift(n))*(Inc['Volume'].shift(n)), index=Inc.index)
+    else : 
+        Inc['VWEMA_'+str(n)] = Inc['Close']*Inc['Volume'].ewm(span= n).mean()
+    Inc['VWEMA_'+str(n)]= Inc['VWEMA_'+str(n)].dropna() 
+
+def Roll (Inc,n):
+    Inc['Delta_P_t']=pd.Series(Inc['Close']-Inc['Close'].shift(1), index=Inc.index)
+    Inc['Delta_P_t+1']=Inc['Delta_P_t'].shift(1)
+    Inc['Cov']=Inc['Delta_P_t+1'].rolling(n).cov(Inc['Delta_P_t'])
+    Inc['Roll_S'] = np.where(Inc['Cov']<0 ,np.sqrt(-4*Inc['Cov']),0)
+    Inc['Roll_S']=Inc['Roll_S'].dropna()
+SMA(AXP,60)
+#AXP
+Roll(AXP,60)
+
+DOW30=['AAPL','AXP','BA','CAT','CSCO','CVX','DIS','DWDP','GS','HD','IBM','INTC','JNJ','JPM','KO','MCD','MMM','MRK','MSFT','NKE','PFE','PG','TRV','UNH','UTX','V','VZ','WBA','WMT','XOM']
+#Compute all features
+
+N=[1,2,5,10,20,60]
+for d in DOW30:
+    for n in N: 
+        Return(vars()[d],n)
+        SMA(vars()[d],n)
+        SMAC(vars()[d],n)
+        EMA(vars()[d],n)
+        VWEMA(vars()[d],n)
+    Roll(vars()[d],60)
+        
+
+for d in DOW30:
+    vars()[d]['Return_1']=vars()[d]['Return_1'].dropna()
+    vars()[d]['Y']=vars()[d]['Return_1'].shift(-2)
+    vars()[d]['Y']=vars()[d]['Y'].dropna()
+   
+#AXP['Return_1'].isnull().values.any()
+
+#Merging data
+Data=AAPL
+for d in DOW30:
+    if d!='AAPL' and d!= 'AXP' :
+        Data=Data.append(vars()[d])
+Data=Data.sort_values('Date')
+#fill the Nan value using forward and backward fill
+#Data=Data.fillna(method='ffill')
+#Data=Data.fillna(method='Bfill')
+
+
+Data=Data[['Date',
+        'Return_1', 'Return_10', 'Return_2', 'Return_20', 'Return_5',
+       'Return_60', 'SMA_1', 'SMA_10', 'SMA_2', 'SMA_20', 'SMA_5',
+       'SMA_60','SMAC_1', 'SMAC_10', 'SMAC_2', 'SMAC_20',
+       'SMAC_5', 'SMAC_60','EMA_1', 'EMA_10', 'EMA_2', 'EMA_20', 'EMA_5', 'EMA_60', 'VWEMA_1', 'VWEMA_10', 'VWEMA_2', 'VWEMA_20', 'VWEMA_5',
+       'VWEMA_60','Roll_S', 'Y']]
+
+features=['Return_1', 'Return_10', 'Return_2', 'Return_20', 'Return_5',
+       'Return_60', 'SMA_1', 'SMA_10', 'SMA_2', 'SMA_20', 'SMA_5',
+       'SMA_60','SMAC_1', 'SMAC_10', 'SMAC_2', 'SMAC_20',
+       'SMAC_5', 'SMAC_60','EMA_1', 'EMA_10', 'EMA_2', 'EMA_20', 'EMA_5', 'EMA_60', 'VWEMA_1', 'VWEMA_10', 'VWEMA_2', 'VWEMA_20', 'VWEMA_5',
+       'VWEMA_60','Roll_S']
+from datetime import datetime
+Data['Date'] = Data['Date'].astype('datetime64[D]')
+Split_Date = 'Jan 1 1990'
+Data = Data.loc[Data['Date'] > datetime.strptime(Split_Date,'%b %d %Y')]
+Data=Data.dropna()   
+Data=Data.reset_index(drop=True)
+
+for f in features: 
+    cor=Data[f].corr(Data['Y'])
+    #print(cor)
+for f in features:
+    c,p=pearsonr(Data[f],Data['Y'])
+    #print(c,p)
+p-value is close to 0 so the correlation is significant
+
+def bscatter(X,Y,k):
+    Xnom, thresh=pd.qcut(X, k, retbins=True,duplicates='drop')
+    tp = pd.DataFrame({'Xnom': Xnom, 'X': X, 'Y':Y})
+    GMn  = tp.groupby('Xnom').mean()
+    SeMn = tp.groupby('Xnom').std()/ np.sqrt(tp.groupby('Xnom').count())
+    Xq = GMn.X
+    Yq = GMn.Y
+    XSe = SeMn.X
+    YSe = SeMn.Y
+    return(Xq,XSe,Yq,YSe)
+for f in features:    
+    plt.figure()
+    bscatter(Data[f],Data['Y'],20)
+    plt.scatter(Data[f],Data['Y'])    
+plt.show()
+        
+
+bins=[Data['Y'].min(),-Data['Y'].std(),Data['Y'].std(),Data['Y'].max()]
+Classe=pd.cut(Data['Y'],bins,labels=['C0','C1','C2'],right=False,include_lowest=False)
+#Classe
+Data['Classe'] = pd.Series(Classe , index=Data.index)
+Question8
+#Data.isnull().values.any()
+Data=Data[:-1]
+df1, df2,df3,df4 = np.split(Data, 4, axis=0)
+
+#Preparing data
+D1_Train=df1
+D1_Test=df2
+D2_Train=pd.merge(df1,df2,'outer')
+D2_Test=df3.dropna()
+D3_Train=pd.merge(D2_Train,D2_Test,'outer')
+D3_Test=df4.dropna()
+D3_Train.isnull().values.any()
+False
+#Logistic Regression Model
+#Training on the first quarter
+LR1 = LogisticRegression(C=1e5, solver='lbfgs', multi_class='multinomial')
+X=D1_Train[D1_Train.columns[1:32]]
+y=D1_Train['Classe']
+#LR.fit(X, y)
+pred_LR1=LR1.fit(X, y).predict(D1_Test[D1_Test.columns[1:32]])
+D1_Test['pred_LR1']=pd.Series(pred_LR1 , index=D1_Test.index)
+CM_LR1=confusion_matrix(D1_Test['Classe'].astype(str), pred_LR1)
+a_LR1=accuracy_score(D1_Test['Classe'].astype(str), pred_LR1)
+print('the accuracy is equal to',a_LR1)
+#a_LR1_std=np.std(a_LR1)
+#a_LR1_std
+the accuracy is equal to 0.679330413846708
+
+#Training on the second quarter
+LR2 = LogisticRegression(C=1e5, solver='lbfgs', multi_class='multinomial')
+X=D2_Train[D2_Train.columns[1:32]]
+y=D2_Train['Classe']
+pred_LR2=LR2.fit(X, y).predict(D2_Test[D2_Test.columns[1:32]])
+D2_Test['pred_LR2']=pd.Series(pred_LR2 , index=D2_Test.index)
+CM_LR2=confusion_matrix(D2_Test['Classe'].astype(str), pred_LR2)
+a_LR2=accuracy_score(D2_Test['Classe'].astype(str), pred_LR2)
+print('the accuracy is equal to',a_LR2)
+#a_LR2_std=np.std(a_LR2)
+#a_LR2_std
+the accuracy is equal to 0.7938689618563737
+
+#Training on the third quarter
+LR3 = LogisticRegression(C=1e5, solver='lbfgs', multi_class='multinomial')
+X=D3_Train[D3_Train.columns[1:32]]
+y=D3_Train['Classe']
+pred_LR3=LR3.fit(X, y).predict(D3_Test[D3_Test.columns[1:32]])
+D3_Test['pred_LR3']=pd.Series(pred_LR3 , index=D3_Test.index)
+CM_LR3=confusion_matrix(D3_Test['Classe'].astype(str), pred_LR3)
+a_LR3=accuracy_score(D3_Test['Classe'].astype(str), pred_LR3)
+print('the accuracy is equal to',a_LR3)
+#a_LR3_std=np.std(a_LR3)
+#a_LR3_std
+the accuracy is equal to 0.8951828470681908
+
+#D3_Test
+Random Forest Classifier
+#Training on the first quarter
+RF = clf = RandomForestClassifier(n_estimators=100, max_depth=2,random_state=0)
+X=D1_Train[D1_Train.columns[1:32]]
+y=D1_Train['Classe']
+#LR.fit(X, y)
+pred_RF1=RF.fit(X, y).predict(D1_Test[D1_Test.columns[1:32]])
+D1_Test['pred_RF1']=pd.Series(pred_RF1 , index=D1_Test.index)
+CM_RF1=confusion_matrix(D1_Test['Classe'].astype(str), pred_RF1)
+a_RF1=accuracy_score(D1_Test['Classe'].astype(str), pred_RF1)
+print('the accuracy is equal to',a_RF1)
+#a_RF1_std=np.std(a_RF1)
+#a_RF1_std
+the accuracy is equal to 0.6799560181235663
+
+#Training on the first quarter
+RF2 = clf = RandomForestClassifier(n_estimators=100, max_depth=2,random_state=0)
+X=D2_Train[D2_Train.columns[1:32]]
+y=D2_Train['Classe']
+pred_RF2=RF2.fit(X, y).predict(D2_Test[D2_Test.columns[1:32]])
+D2_Test['pred_RF2']=pd.Series(pred_RF2 , index=D2_Test.index)
+CM_RF2=confusion_matrix(D2_Test['Classe'].astype(str), pred_RF2) 
+a_RF2=accuracy_score(D2_Test['Classe'].astype(str), pred_RF2)
+print('the accuracy is equal to',a_RF2)
+#a_RF2_std=np.std(a_RF2)
+#a_RF2_std
+the accuracy is equal to 0.7962008038219458
+
+#Training on the first quarter
+RF3 = clf = RandomForestClassifier(n_estimators=100, max_depth=2,random_state=0)
+X=D3_Train[D3_Train.columns[1:32]]
+y=D3_Train['Classe']
+pred_RF3=RF3.fit(X, y).predict(D3_Test[D3_Test.columns[1:32]])
+D3_Test['pred_RF3']=pd.Series(pred_RF3 , index=D3_Test.index)
+CM_RF3=confusion_matrix(D3_Test['Classe'].astype(str), pred_RF3)
+a_RF3=accuracy_score(D3_Test['Classe'].astype(str), pred_RF3)
+print('the accuracy is equal to',a_RF3)
+#a_RF3_std=np.std(a_RF3)
+#a_RF3_std
+the accuracy is equal to 0.8962823939790328
+
+#Adaboost Classifier
+AD =AdaBoostClassifier(DecisionTreeClassifier(max_depth=1),algorithm="SAMME",n_estimators=200)
+X=D1_Train[D1_Train.columns[1:32]]
+y=D1_Train['Classe']
+#LR.fit(X, y)
+pred_AD1=AD.fit(X, y).predict(D1_Test[D1_Test.columns[1:32]])
+D1_Test['pred_AD1']=pd.Series(pred_AD1 , index=D1_Test.index)
+CM_AD1=confusion_matrix(D1_Test['Classe'].astype(str), pred_AD1)
+a_AD1=accuracy_score(D1_Test['Classe'].astype(str), pred_AD1)
+print('the accuracy is equal to',a_AD1)
+#a_AD1_std=np.std(a_AD1)
+#a_AD1_std
+the accuracy is equal to 0.6800318489450037
+0.0
+AD2 =AdaBoostClassifier(DecisionTreeClassifier(max_depth=1),algorithm="SAMME",n_estimators=200)
+X=D2_Train[D2_Train.columns[1:32]]
+y=D2_Train['Classe']
+#LR.fit(X, y)
+pred_AD2=AD2.fit(X, y).predict(D2_Test[D2_Test.columns[1:32]])
+D2_Test['pred_AD2']=pd.Series(pred_AD2 , index=D2_Test.index)
+CM_AD2=confusion_matrix(D2_Test['Classe'].astype(str), pred_AD2)
+a_AD2=accuracy_score(D2_Test['Classe'].astype(str), pred_AD2)
+print('the accuracy is equal to',a_AD2)
+#a_AD2_std=np.std(a_AD2)
+#a_AD2_std
+the accuracy is equal to 0.7964283005990749
+
+AD3 =AdaBoostClassifier(DecisionTreeClassifier(max_depth=1),algorithm="SAMME",n_estimators=200)
+X=D3_Train[D3_Train.columns[1:32]]
+y=D3_Train['Classe']
+#LR.fit(X, y)
+pred_AD3=AD3.fit(X, y).predict(D3_Test[D3_Test.columns[1:32]])
+D3_Test['pred_AD3']=pd.Series(pred_AD3 , index=D3_Test.index)
+CM_AD3=confusion_matrix(D3_Test['Classe'].astype(str), pred_AD3)
+a_AD3=accuracy_score(D3_Test['Classe'].astype(str), pred_AD3)
+print('the accuracy is equal to',a_AD3)
+#a_AD3_std=np.std(a_AD3)
+#a_AD3_std
+the accuracy is equal to 0.8962823939790328
+0.0
+#Gradient boosting classifier
+GB=GradientBoostingClassifier(learning_rate=0.05, subsample=0.5, max_depth=2, n_estimators=100)
+X=D1_Train[D1_Train.columns[1:32]]
+y=D1_Train['Classe']
+pred_GB1=GB.fit(X, y).predict(D1_Test[D1_Test.columns[1:32]])
+D1_Test['pred_GB1']=pd.Series(pred_GB1 , index=D1_Test.index)
+CM_GB1=confusion_matrix(D1_Test['Classe'].astype(str), pred_GB1)
+a_GB1=accuracy_score(D1_Test['Classe'].astype(str), pred_GB1)
+print('the accuracy is equal to',a_GB1)
+#a_GB1_std=np.std(a_GB1)
+#a_GB1_std
+the accuracy is equal to 0.6463629642268099
+0.0
+#D1_Test
+GB2=GradientBoostingClassifier(learning_rate=0.05, subsample=0.5, max_depth=2, n_estimators=100)
+X=D2_Train[D2_Train.columns[1:32]]
+y=D2_Train['Classe']
+pred_GB2=GB2.fit(X, y).predict(D2_Test[D2_Test.columns[1:32]])
+D2_Test['pred_GB2']=pd.Series(pred_GB2 , index=D2_Test.index)
+CM_GB2=confusion_matrix(D2_Test['Classe'].astype(str), pred_GB2)
+a_GB2=accuracy_score(D2_Test['Classe'].astype(str), pred_GB2)
+print('the accuracy is equal to',a_GB2)
+#a_GB2_std=np.std(a_GB2)
+#a_GB2_std
+the accuracy is equal to 0.7969591264123759
+
+GB3=GradientBoostingClassifier(learning_rate=0.05, subsample=0.5, max_depth=2, n_estimators=100)
+X=D3_Train[D3_Train.columns[1:32]]
+y=D3_Train['Classe']
+pred_GB3=GB3.fit(X, y).predict(D3_Test[D3_Test.columns[1:32]])
+D3_Test['pred_GB3']=pd.Series(pred_GB3 , index=D3_Test.index)
+CM_GB3=confusion_matrix(D3_Test['Classe'].astype(str), pred_GB3)
+a_GB3=accuracy_score(D3_Test['Classe'].astype(str), pred_GB3)
+print('the accuracy is equal to',a_GB3)
+#a_GB3_std=np.std(a_GB3)
+#a_GB3_std
+the accuracy is equal to 0.8962823939790328
+0.0
+Related to the accuracy measure we found that :
+(1) The best model for the first quarter is Random Forest
+(2) The best model for the second quarter is Gradient Boosting Classifier
+(3) The best classifier for the third quarter is Adaboost
+#Testing the EMH
+
+from datetime import datetime
+for d in DOW30:
+    vars()[d]['Date'] =vars()[d]['Date'].astype('datetime64[D]')
+    Split_Date = 'Jan 1 1990'
+    vars()[d]= vars()[d].loc[vars()[d]['Date'] > datetime.strptime(Split_Date,'%b %d %Y')]
+    vars()[d]=vars()[d].dropna()   
+    vars()[d]=vars()[d].reset_index(drop=True)
+#AXP.isnull().values.any()
+
+for d in DOW30: 
+    vars()[d]['Return_1']=vars()[d]['Return_1'].dropna()
+    t, p = stats.normaltest(vars()[d]['Return_1'])
+
+for d in DOW30: 
+    cor_stock=vars()[d].corr()
+    #print('The correlation matrix of'+d+str(cor_stock))
+From the correlation matrix we can say that all the features are autocorrelated, So they are not significant
+Question3
+DJI.corr()
+Open	High	Low	Close	Adj Close	Volume
+Open	1.000000	0.999937	0.999908	0.999847	0.999847	0.617142
+High	0.999937	1.000000	0.999889	0.999926	0.999926	0.619224
+Low	0.999908	0.999889	1.000000	0.999933	0.999933	0.614166
+Close	0.999847	0.999926	0.999933	1.000000	1.000000	0.616518
+Adj Close	0.999847	0.999926	0.999933	1.000000	1.000000	0.616518
+Volume	0.617142	0.619224	0.614166	0.616518	0.616518	1.000000
+The inofrmations is highly "correlated" . So,the assumptions of the market efficency are not respected -> We can say that the market is not efficient
