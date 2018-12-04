@@ -1,0 +1,233 @@
+
+import pandas as pd
+import os
+import numpy as np
+from datetime import datetime, timedelta
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import r2_score
+from sklearn.metrics import confusion_matrix,accuracy_score
+from sklearn import tree
+from datetime import datetime,timedelta
+#Read several csv files 
+df_list = []
+path="../NBBO"
+for file in os.listdir(path):
+    df = pd.read_csv(path+'/'+ file, engine='python')
+    #vars()[]: replace a string with a variable that have the same name
+    vars()[file.replace(".csv","")]=df
+NBBO=['C1_NBBO','C2_NBBO','C3_NBBO','C4_NBBO','C5_NBBO']
+#Read several csv files 
+df_list = []
+path="../OMED"
+for file in os.listdir(path):
+    df = pd.read_csv(path+'/'+ file, engine='python')
+    #vars()[]: replace a string with a variable that have the same name
+    vars()[file.replace(".csv","")]=df
+OMED=['C1_OMED','C2_OMED','C3_OMED','C4_OMED','C5_OMED']
+#Read several csv files 
+df_list = []
+path="../Quote Bars"
+for file in os.listdir(path):
+    df = pd.read_csv(path+'/'+ file, engine='python')
+    #vars()[]: replace a string with a variable that have the same name
+    vars()[file.replace(".csv","")]=df
+Quote_Bars=['C1_QB','C2_QB','C3_QB','C4_QB','C5_QB']
+#Read several csv files 
+df_list = []
+path="../Quotes"
+for file in os.listdir(path):
+    df = pd.read_csv(path+'/'+ file, names=['Date','Time','Exchange','Bid Price','Ask Price','Bid Size','Ask Size','Quote Condition','Market Maker ID','Sequence Number','Bid Exchange','Ask Exchange','National BBO Indicator','FINRA BBO Indicator','Quote Cancel/Correction','Quote Source Retail Interest Indicator (RPI)','Short Sale Restriction Indicator','Limit-Up/Limit-Down BBO Indicator','FINRA ADF Market Participant Quote Indicator','FINRA ADF MPID Indicator','SIP Generated Message Identifier','National BBO Limit-Up/Limit-Down Indicator','Participant Timestamp','Regional Reference Number','FINRA ADF Timestamp','Timestamp Microseconds','Participant Timestamp microseconds','TRF Timestamp microseconds','Security Status Indicator'],engine='python')
+    #vars()[]: replace a string with a variable that have the same name
+    vars()[file.replace(".csv","")]=df
+Quote=['C1_Q','C2_Q','C3_Q','C4_Q','C5_Q']
+#Read several csv files 
+df_list = []
+path="../Trades"
+for file in os.listdir(path):
+    df = pd.read_csv(path+'/'+ file,names=['Date','Time','Price','Volume','Exchange Code','Sales condition','Correction Indicator','Sequence Number','Trade Stop indicator','source of Trade','MDS 127 / TRF','Exclude Record Flag','Filtered Price'],engine='python')
+    #vars()[]: replace a string with a variable that have the same name
+    vars()[file.replace(".csv","")]=df
+Trade=['C1_T','C2_T','C3_T','C4_T','C5_T']
+
+for n in Quote:
+    vars()[n]=vars()[n].drop(['Quote Cancel/Correction','FINRA BBO Indicator','Market Maker ID','Quote Source Retail Interest Indicator (RPI)','Short Sale Restriction Indicator','Limit-Up/Limit-Down BBO Indicator','FINRA ADF Market Participant Quote Indicator','FINRA ADF MPID Indicator','SIP Generated Message Identifier','National BBO Limit-Up/Limit-Down Indicator','Participant Timestamp','Regional Reference Number','FINRA ADF Timestamp','Timestamp Microseconds','Participant Timestamp microseconds','TRF Timestamp microseconds','Security Status Indicator'],axis=1)
+    vars()[n]['Date&Time']= pd.to_datetime(vars()[n]['Date'] + ' ' + vars()[n]['Time'])
+for n in Trade:
+    vars()[n]= vars()[n].drop(['Filtered Price'],axis=1)
+    vars()[n]['Date&Time']= pd.to_datetime(vars()[n]['Date'] + ' ' + vars()[n]['Time'])
+Q_T1=pd.merge_asof(C1_T,C1_Q,on='Date&Time',direction='backward')
+Q_T2=pd.merge_asof(C2_T,C2_Q,on='Date&Time',direction='backward')
+Q_T3=pd.merge_asof(C3_T,C3_Q,on='Date&Time',direction='backward')
+Q_T4=pd.merge_asof(C4_T,C4_Q,on='Date&Time',direction='backward')
+Q_T5=pd.merge_asof(C5_T,C5_Q,on='Date&Time',direction='backward')
+#Q_T1[['Time_x','Time_y']]
+
+#Tick rule : When the price is higher (lower) than the previous price, the trade is classified as a buy (sell). If the price of the current trade is the same as the prior trade, the closest unequal lagged price is used for comparison.
+
+for i in range(1,6):
+    vars()['Q_T'+str(i)]['TickDirection'] = np.where(vars()['Q_T'+str(i)]['Price'] >= vars()['Q_T'+str(i)]['Price'].shift(1), 'Buy', 'Sell')
+
+#In the Quote Test, if the price of a trade is lower than the midpoint of the matched bid and ask, then the trade is classified as seller-initiated. If the price is higher, the trade is considered to be buyer-initiated. When they are equal, the tick test is utilized.
+
+for i in range(1,6):
+    vars()['Q_T'+str(i)]['LRDirection'] = np.where( vars()['Q_T'+str(i)]['Price'] > 0.5*(vars()['Q_T'+str(i)]['Bid Price']+vars()['Q_T'+str(i)]['Ask Price']), 'Buy', np.where( vars()['Q_T'+str(i)]['Price'] < 0.5*(vars()['Q_T'+str(i)]['Bid Price']+vars()['Q_T'+str(i)]['Ask Price']), 'Sell',  vars()['Q_T'+str(i)]['TickDirection']) )
+
+Q_T=Q_T1
+for i in range(2,6):
+    Q_T=Q_T.append( vars()['Q_T'+str(i)])
+Q_T=Q_T.sort_values(['Date_x','Time_x'])
+Save=Q_T
+i=0
+for d in Q_T['Date_x'].unique() :
+    MinTime=Q_T['Time_x'].loc[Q_T['Date_x']==d].min()
+    MaxTime=Q_T['Time_x'].loc[Q_T['Date_x']==d].max()
+    MinTimePlus5Min = str((datetime.strptime(MinTime, "%H:%M:%S.%f") + timedelta(minutes = 5)).time())
+    MaxTimeMinus5Min = str((datetime.strptime(MaxTime, "%H:%M:%S.%f") - timedelta(minutes = 5)).time())
+    if i==0:
+        Save= Q_T.loc[(Q_T['Date_x']==d) & (Q_T['Time_x'] > MinTimePlus5Min )  & (Q_T['Time_x'] < MaxTimeMinus5Min )]
+        i=i+1
+    else:
+        Save=Save.append(Q_T.loc[(Q_T['Date_x']==d) & (Q_T['Time_x'] > MinTimePlus5Min )  & (Q_T['Time_x'] < MaxTimeMinus5Min )])
+#Q_T
+Save['Exact_Time'] = Save['Date&Time'].values.astype('datetime64[m]')
+One_S=Save.groupby(Save['Exact_Time'],as_index=False, axis=0)['Volume'].sum()
+Save['Price_P']=pd.Series(Save['Price']*Save['Volume'],index=Save.index)
+Price_P=Save.groupby(Save['Exact_Time'],as_index=False,axis=0)['Price_P'].sum()
+One_Summary= pd.merge(One_S,Price_P, on=['Exact_Time'])
+One_Summary['VWAP']=pd.Series(One_Summary['Price_P']/One_Summary['Volume'],index=One_Summary.index)
+Save['NB_Tick_Buy']=np.where(Save['TickDirection']== 'Buy', 1,0)
+Save['NB_Tick_Sell']=np.where(Save['TickDirection']=='Sell', 1,0)
+S_Buy=Save.groupby(Save['Exact_Time'],as_index=False,axis=0)['NB_Tick_Buy'].sum()
+S_Sell=Save.groupby(Save['Exact_Time'],as_index=False,axis=0)['NB_Tick_Sell'].sum()
+One_Summary= pd.merge(One_Summary,S_Sell, on=['Exact_Time'])
+One_Summary= pd.merge(One_Summary,S_Buy, on=['Exact_Time'])
+One_Summary['Buy_Sell_Tick']=pd.Series(One_Summary['NB_Tick_Buy']- One_Summary['NB_Tick_Sell'],index=One_Summary.index)
+One_Summary['TickImbalance']=pd.Series(One_Summary['Buy_Sell_Tick']/One_Summary['Volume'],index=One_Summary.index)
+Save['NB_LR_Buy']=np.where(Save['LRDirection']== 'Buy', 1,0)
+Save['NB_LR_Sell']=np.where(Save['LRDirection']=='Sell', 1,0)
+L_Buy=Save.groupby(Save['Exact_Time'],as_index=False,axis=0)['NB_LR_Buy'].sum()
+L_Sell=Save.groupby(Save['Exact_Time'],as_index=False,axis=0)['NB_LR_Sell'].sum()
+One_Summary= pd.merge(One_Summary,L_Sell, on=['Exact_Time'])
+One_Summary= pd.merge(One_Summary,L_Buy, on=['Exact_Time'])
+One_Summary['Buy_Sell_LR']=pd.Series(One_Summary['NB_LR_Buy']- One_Summary['NB_LR_Sell'],index=One_Summary.index)
+One_Summary['LRImbalance']=pd.Series(One_Summary['Buy_Sell_LR']/One_Summary['Volume'],index=One_Summary.index)
+
+One_Summary['Return']=pd.Series((One_Summary['Price_P'].shift(-5)-One_Summary['Price_P'])/One_Summary['Price_P'],index=One_Summary.index)
+One_Summary['Class']=np.where(One_Summary['Return']<0,-1,1)
+N=[5,15,20,30]
+for n in N:
+    One_Summary['Return_'+str(n)]=pd.Series((One_Summary['Price_P'].shift(n)-One_Summary['Price_P'])/One_Summary['Price_P'],index=One_Summary.index)
+    One_Summary['Std_Return'+str(n)]=One_Summary['Return'].rolling(n).std()
+    One_Summary['TickImbalance_'+str(n)]=One_Summary['TickImbalance'].rolling(n).mean()
+    One_Summary['LRImbalance_'+str(n)]=One_Summary['LRImbalance'].rolling(n).mean()
+    
+One_Summary=One_Summary.dropna()
+#One_Summary.corr(method='pearson', min_periods=1)
+Logistic Regression
+LR= LogisticRegression()
+X=One_Summary[['LRImbalance','TickImbalance','Return_5', 'Std_Return5', 'TickImbalance_5', 'LRImbalance_5',
+       'Return_15', 'Std_Return15', 'TickImbalance_15', 'LRImbalance_15',
+       'Return_20', 'Std_Return20', 'TickImbalance_20', 'LRImbalance_20',
+       'Return_30', 'Std_Return30', 'TickImbalance_30', 'LRImbalance_30']]
+Y=One_Summary[['Class']]
+Train_X=X[30:1000]
+Train_Y=Y[30:1000]
+Test_X=X[1001:1195]
+Test_Y=Y[1001:1195]
+#LR.fit(X, y)
+pred_LR=LR.fit(Train_X, Train_Y).predict(Test_X)
+cm_LR=confusion_matrix(Test_Y,pred_LR )
+print('confusion_metrix',cm_LR)
+Acc_LR=accuracy_score(Test_Y, pred_LR)
+print('Accuracy : ', Acc_LR)
+
+sensitivity_LR = cm_LR[0,0]/(cm_LR[0,0]+cm_LR[0,1])
+print('Sensitivity : ', sensitivity_LR )
+
+specificity_LR = cm_LR[1,1]/(cm_LR[1,0]+cm_LR[1,1])
+print('Specificity : ', specificity_LR)
+
+#Decision Trees
+DT= tree.DecisionTreeClassifier()
+X=One_Summary[['LRImbalance','TickImbalance','Return_5', 'Std_Return5', 'TickImbalance_5', 'LRImbalance_5',
+       'Return_15', 'Std_Return15', 'TickImbalance_15', 'LRImbalance_15',
+       'Return_20', 'Std_Return20', 'TickImbalance_20', 'LRImbalance_20',
+       'Return_30', 'Std_Return30', 'TickImbalance_30', 'LRImbalance_30']]
+Y=One_Summary[['Class']]
+Train_X=X[30:1000]
+Train_Y=Y[30:1000]
+Test_X=X[1001:1195]
+Test_Y=Y[1001:1195]
+#LR.fit(X, y)
+pred_DT=DT.fit(Train_X, Train_Y).predict(Test_X)
+cm_DT=confusion_matrix(Test_Y,pred_DT )
+print('confusion_metrix',cm_DT)
+
+Acc_DT=accuracy_score(Test_Y, pred_DT)
+print('Accuracy : ', Acc_DT)
+
+sensitivity_DT = cm_DT[0,0]/(cm_DT[0,0]+cm_DT[0,1])
+print('Sensitivity : ', sensitivity_DT )
+
+specificity_DT = cm_DT[1,1]/(cm_DT[1,0]+cm_DT[1,1])
+print('Specificity : ', specificity_DT)
+#We aim to choose the Decision Tree Model
+#Execution strategies
+xyz=pd.read_excel('C:/Users/lenovo/Desktop/3éme EGES/financial ML/Assignement1/Data/xyz_transactions.xlsx')
+xyz['10%_POV']=pd.Series(xyz['Trade Size (|qt|)']*(0.1/(1-0.1)),index=xyz.index)
+xyz['5%_POV']=pd.Series(xyz['Trade Size (|qt|)']*(0.05/(1-0.05)),index=xyz.index)
+xyz['20%_POV']=pd.Series(xyz['Trade Size (|qt|)']*(0.2/(1-0.2)),index=xyz.index)
+xyz['P_V']=pd.Series(xyz['Trade Size (|qt|)']*xyz['Price (pt)'],index=xyz.index)
+xyz['V_cumulative']=xyz['Trade Size (|qt|)'].expanding().sum()
+xyz['P_V_cumulative']=xyz['P_V'].expanding().sum()
+xyz['VWAP']=pd.Series(xyz['P_V_cumulative']/xyz['V_cumulative'],index=xyz.index)
+#Create a data each minute 
+xyz['Exact_Time'] = pd.to_datetime(xyz['Time'].astype(str)).values.astype('datetime64[m]')
+#drop the dates and hours
+xyz['Exact_Time']=xyz['Exact_Time'].dt.time
+xyz_Min=xyz.groupby(xyz['Exact_Time'],as_index=False, axis=0)['Trade Size (|qt|)'].sum()
+PV=xyz.groupby(xyz['Exact_Time'],as_index=False, axis=0)['P_V'].sum()
+xyz_Min=pd.merge(xyz_Min,PV,on='Exact_Time')
+xyz_Min['TWAP']=pd.Series(xyz_Min['P_V']/xyz_Min['Trade Size (|qt|)'],index=xyz_Min.index)
+Split_Time = "10:00:00"
+xyz = xyz.loc[xyz['Exact_Time'].astype(str) >= Split_Time]
+xyz_Min=xyz_Min.loc[xyz_Min['Exact_Time'].astype(str) >= Split_Time]
+df=xyz
+df['Label']=np.where(df['VWAP']< df['Price (pt)'],0,1)
+df=df.loc[df['Label']==1]
+df['Volume']=df['Trade Size (|qt|)'].expanding().sum()
+df['VWAP_Price'].sum()/50000
+#The VWAP is a possible strategy
+
+df_5=xyz
+df_5['Volume_5']=df_5['5%_POV'].expanding().sum()
+df_5=df_5.loc[df_5['Volume_5'] <= 50000]
+#df_5
+#We cannot follow the 5% POV strategy because we cannot buy an order of 50000 shares
+
+df_10=xyz
+df_10['Volume_10']=df_10['10%_POV'].expanding().sum()
+df_10=df_10.loc[df_10['Volume_10'] <= 50000]
+#df_10
+#Same, like the 5% POV
+
+df_20=xyz
+df_20['Volume_20']=df_20['20%_POV'].expanding().sum()
+df_20=df_20.loc[df_20['Volume_20'] <= 50000]
+#df_20.loc[[842]]
+Price_20 = ((df_20['20%_POV'].values*df_20['Price (pt)'].values).sum()+df_20.iloc[841]['Price (pt)']*62.5)/50000
+#The 20% POV is the optimal Strategy
+
+TWAP_Time=[]
+for i  in range(10,16):
+    for j in range(0,56,5):
+        if j==0 or j == 5 :
+            time = str(i)+':0'+str(j)+':00'
+        else :
+            time = str(i)+':'+str(j)+':00'
+        TWAP_Time.append(time)
+TWAP_Strategy=df[df['Exact_Time'].astype(str).isin(TWAP_Time)]
+TWAP_Strategy['Trade Size (|qt|)'].sum()
+#the TWAP cannot be a strategy to buy 50000 shares
+
+Conclusion: the 20% of POV is an optimal Strategy
